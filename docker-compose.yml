@@ -1,0 +1,23 @@
+services:
+  pr-doc-generator:
+    build: .
+    image: pr-doc-generator:latest
+    stdin_open: true    # keeps stdin open for interactive prompts
+    tty: true           # allocates a TTY so input() works
+
+    environment:
+      # Pass your Anthropic API key here OR let the app prompt you for it
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+
+    volumes:
+      # Mount your git project so the container can run git commands on it
+      # Change /path/to/your/project to your actual project path
+      - ${PROJECT_PATH:-/path/to/your/project}:/workspace:ro
+
+      # Output docs land in ./output on your host machine
+      - ./output:/app/output
+
+      # Optional: override the default template with your own
+      # - ./my_template.md:/workspace/pr_template.md:ro
+
+    working_dir: /app/src
