@@ -171,6 +171,73 @@ CALLERS = {
 }
 
 
+@retry_with_backoff()
+def _stream_anthropic(provider, api_key, model, prompt, callback):
+    """Stream Anthropic response token by token."""
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key)
+    
+    with client.messages.stream(
+        model=model,
+        max_tokens=4096,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": prompt}],
+    ) as stream:
+        for text in stream.text_stream:
+            if text:
+                callback(text)
+
+
+@retry_with_backoff()
+def _stream_openai_compat(provider, api_key, model, prompt, callback):
+    """Stream OpenAI-compatible response token by token."""
+    from openai import OpenAI
+    kwargs = {
+        "base_url": provider["base_url"],
+        "api_key":  api_key or "no-key-needed",
+    }
+    if "openrouter.ai" in (provider.get("base_url") or ""):
+        kwargs["default_headers"] = {
+            "HTTP-Referer": "https://github.com/pr-doc-generator",
+            "X-Title": "PR Doc Generator",
+        }
+    client = OpenAI(**kwargs)
+    
+    stream = client.chat.completions.create(
+        model=model,
+        max_tokens=4096,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": prompt},
+        ],
+        stream=True,
+    )
+    
+    for chunk in stream:
+        if chunk.choices and chunk.choices[0].delta.content:
+            callback(chunk.choices[0].delta.content)
+
+
+@retry_with_backoff()
+def _stream_gemini(provider, api_key, model, prompt, callback):
+    """Stream Gemini response."""
+    import google.generativeai as genai
+    genai.configure(api_key=api_key)
+    client = genai.GenerativeModel(model_name=model, system_instruction=SYSTEM_PROMPT)
+    
+    response = client.generate_content(prompt, stream=True)
+    for chunk in response:
+        if chunk.text:
+            callback(chunk.text)
+
+
+STREAM_CALLERS = {
+    "anthropic":     _stream_anthropic,
+    "openai_compat": _stream_openai_compat,
+    "gemini":        _stream_gemini,
+}
+
+
 # ── Progress spinner ──────────────────────────────────────────────────────────
 
 SPINNER_MESSAGES = [
@@ -224,23 +291,25 @@ class ProgressSpinner:
 # ── Public class ──────────────────────────────────────────────────────────────
 
 class DocGenerator:
-    def __init__(self, provider_key, api_key, model):
+    def __init__(self, provider_key, api_key, model, stream: bool = True):
         self.provider     = get_provider(provider_key)
         self.provider_key = provider_key
         self.api_key      = api_key
         self.model        = model
+        self.stream       = stream
 
     def generate(self, diff, template, branch_name, base_branch, changed_files):
         prompt = _build_prompt(diff, template, branch_name, base_branch, changed_files)
-        caller = CALLERS[self.provider["sdk"]]
 
         console.print(
             f"\n  [bold cyan]🤖  Generating via {self.provider['label']}[/bold cyan] "
             f"[dim]({self.model})[/dim]"
         )
 
-        with ProgressSpinner(self.provider["label"]):
-            content = caller(self.provider, self.api_key, self.model, prompt)
+        if self.stream:
+            content = self._generate_streaming(prompt, branch_name)
+        else:
+            content = self._generate_blocking(prompt)
 
         console.print("  [bold green]✔  AI generation complete.[/bold green]")
 
@@ -248,3 +317,37 @@ class DocGenerator:
         if not content.startswith("# PR DOCUMENT"):
             content = header + content
         return content
+
+    def _generate_blocking(self, prompt: str) -> str:
+        """Generate response without streaming (fallback)."""
+        caller = CALLERS[self.provider["sdk"]]
+        with ProgressSpinner(self.provider["label"]):
+            content = caller(self.provider, self.api_key, self.model, prompt)
+        return content
+
+    def _generate_streaming(self, prompt: str, branch_name: str) -> str:
+        """Generate response with streaming tokens."""
+        from rich.console import Console
+        from rich.live import Live
+        from rich.text import Text
+        
+        console = Console()
+        stream_caller = STREAM_CALLERS[self.provider["sdk"]]
+        
+        accumulated = []
+        
+        def on_token(token: str):
+            accumulated.append(token)
+        
+        with Live(
+            Text("  Waiting for response...", style="dim"),
+            console=console,
+            refresh_per_second=10,
+            transient=True,
+        ) as live:
+            try:
+                stream_caller(self.provider, self.api_key, self.model, prompt, on_token)
+            except Exception as e:
+                raise
+        
+        return "".join(accumulated)

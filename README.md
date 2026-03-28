@@ -1,7 +1,14 @@
-# PR Doc Generator  v1.2
+# PR Doc Generator  v1.3
 
 Generate Markdown PR documents from git diff using AI.
 **7 providers supported** — paid, free, and fully local.
+
+## ✨ What's New in v1.3
+
+- **Streaming responses** — watch tokens appear in real-time
+- **Config file support** — save per-project settings
+- **Error handling** — automatic retry with exponential backoff
+- **Unit tests** — 46+ tests for reliability
 
 ---
 
@@ -143,11 +150,44 @@ python main.py [OPTIONS]
   --model     NAME      Model override (e.g. llama3.3, gpt-4o-mini)
   --template  PATH      Path to PR template (default: <project>/pr_template.md)
   --output    DIR       Output directory (default: <project>/output/)
+  --no-stream           Disable streaming response (show spinner instead)
 ```
 
 ---
 
-## 📋 PR Template
+## ⚙️ Config File
+
+Create a `.pr-doc-gen.yaml` file in your project root to save default settings:
+
+```yaml
+# .pr-doc-gen.yaml
+provider: groq
+model: llama-3.3-70b-versatile
+base_branch: develop
+output_dir: ./pr-docs
+```
+
+### Config Priority
+
+Settings are loaded in this order (later overrides earlier):
+1. Hardcoded defaults
+2. `~/.pr-doc-gen.yaml` (home directory)
+3. `./.pr-doc-gen.yaml` (project root)
+4. CLI flags (highest priority)
+
+### Example Config
+
+```yaml
+# For a specific project
+provider: openai
+model: gpt-4o-mini
+base_branch: main
+output_dir: ./pr-outputs
+```
+
+**Note:** API keys should NOT be in the config file. Use environment variables instead.
+
+---
 
 Place a `pr_template.md` in your **project root** and it's detected automatically:
 
@@ -158,6 +198,25 @@ your-project/
 ```
 
 The bundled template is used as a fallback.
+
+---
+
+## 🔄 Streaming Response
+
+By default, the app streams AI response tokens in real-time — you'll see the PR document appear as it's being generated.
+
+```bash
+# Default: streaming enabled
+python main.py
+
+# Disable streaming (show spinner instead)
+python main.py --no-stream
+```
+
+Streaming provides:
+- Better perceived performance (see progress instantly)
+- Transparency (know it's working)
+- Ability to cancel if wrong response starts
 
 ---
 
@@ -173,10 +232,11 @@ Every allowed command is shown to you before it runs and requires `y` to proceed
 
 ```
 pr-doc-generator/
+├── .pr-doc-gen.yaml.example       ← config template
 ├── Dockerfile                     ← AI_PROVIDER build arg controls which SDK is installed
 ├── docker-compose.yml
 ├── generate-pr-doc.sh             ← run this
-├── requirements-base.txt          ← rich, plyer (always installed)
+├── requirements-base.txt          ← rich, plyer, pyyaml, pytest
 ├── requirements-providers/
 │   ├── all.txt                    ← all SDKs
 │   ├── anthropic.txt
@@ -189,13 +249,36 @@ pr-doc-generator/
 ├── src/
 │   ├── main.py                   ← CLI with rich UI and provider picker
 │   ├── providers.py              ← single source of truth for all providers
-│   ├── doc_generator.py          ← calls chosen provider's SDK
+│   ├── doc_generator.py          ← calls chosen provider's SDK with streaming
+│   ├── config.py                 ← YAML config loader
 │   ├── git_diff.py               ← safe git runner
 │   ├── doc_writer.py             ← writes .md output
 │   └── notifier.py               ← desktop + terminal notifications
+├── tests/                        ← unit tests (46+ tests)
+│   ├── test_config.py
+│   ├── test_providers.py
+│   └── test_git_diff.py
 ├── templates/
 │   └── pr_template.md
 └── output/                       ← generated docs land here
+```
+
+---
+
+## 🧪 Running Tests
+
+```bash
+# Install test dependencies
+pip install pytest pyyaml
+
+# Run all tests
+pytest
+
+# Run a specific test file
+pytest tests/test_providers.py
+
+# Run a specific test
+pytest tests/test_providers.py::TestGetProvider::test_get_provider_valid_groq
 ```
 
 ---
