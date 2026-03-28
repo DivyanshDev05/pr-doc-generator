@@ -205,6 +205,7 @@ Examples:
     parser.add_argument("--model",    help="Model name override")
     parser.add_argument("--template", help="Path to PR markdown template")
     parser.add_argument("--output",   help="Output directory for the generated doc")
+    parser.add_argument("--no-stream", action="store_true", help="Disable streaming response")
     return parser.parse_args()
 
 
@@ -318,7 +319,13 @@ def main():
 
     # ── Step 5: Generate ─────────────────────────────────────────────────────
     console.rule("[bold]Step 5 — Generating PR Document")
-    generator = DocGenerator(provider_key=provider_key, api_key=api_key, model=model)
+    use_stream = not args.no_stream
+    generator = DocGenerator(
+        provider_key=provider_key, 
+        api_key=api_key, 
+        model=model,
+        stream=use_stream,
+    )
     pr_doc = generator.generate(
         diff=diff_result["diff"],
         template=template_content,
