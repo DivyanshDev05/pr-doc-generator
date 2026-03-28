@@ -3,16 +3,70 @@ doc_generator.py — Calls the chosen AI provider to generate the PR document.
 Supports all providers defined in providers.py.
 """
 
+import functools
 import threading
 import time
+from typing import Callable, TypeVar
 
 from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 
-from providers import PROVIDERS, get_provider
+from providers import get_provider
 
 console = Console()
+
+RETRY_MAX_ATTEMPTS = 3
+RETRY_BASE_DELAY = 1.0
+
+T = TypeVar("T")
+
+
+def retry_with_backoff(max_attempts: int = RETRY_MAX_ATTEMPTS, base_delay: float = RETRY_BASE_DELAY):
+    """Decorator that retries a function with exponential backoff on API errors."""
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> T:
+            last_exception = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    error_type = _classify_error(e)
+                    
+                    if attempt == max_attempts:
+                        console.print(f"  [bold red]✖[/bold red]  Failed after {max_attempts} attempts: {error_type}[/bold red]")
+                        raise
+                    
+                    delay = base_delay * (2 ** (attempt - 1))
+                    console.print(f"  [yellow]⚠[/yellow]  {error_type}. Retrying in {delay:.1f}s... (attempt {attempt}/{max_attempts})")
+                    time.sleep(delay)
+            
+            raise last_exception
+        return wrapper
+    return decorator
+
+
+def _classify_error(exception: Exception) -> str:
+    """Classify error type for user-friendly messaging."""
+    error_msg = str(exception).lower()
+    exc_type = type(exception).__name__
+    
+    if "rate_limit" in error_msg or "rate limit" in error_msg or "429" in error_msg:
+        return "API rate limit exceeded"
+    elif "authentication" in error_msg or "401" in error_msg or "403" in error_msg:
+        return "Authentication failed - check your API key"
+    elif "invalid_request" in error_msg or "400" in error_msg:
+        return f"Invalid request: {exc_type}"
+    elif "timeout" in error_msg or "timed out" in error_msg:
+        return "Request timed out"
+    elif "connection" in error_msg or "connect" in error_msg:
+        return "Connection error - check your internet"
+    elif "insufficient_quota" in error_msg or "billing" in error_msg:
+        return "API quota exceeded - check your account billing"
+    else:
+        return f"{exc_type}: {str(exception)[:80]}"
 
 SYSTEM_PROMPT = """You are a senior software engineer writing a Pull Request document.
 You will be given:
@@ -64,6 +118,7 @@ Name the document after the branch: `{branch_name}`
 
 # ── Provider callers ──────────────────────────────────────────────────────────
 
+@retry_with_backoff()
 def _call_anthropic(provider, api_key, model, prompt):
     import anthropic
     client = anthropic.Anthropic(api_key=api_key)
@@ -76,6 +131,7 @@ def _call_anthropic(provider, api_key, model, prompt):
     return message.content[0].text.strip()
 
 
+@retry_with_backoff()
 def _call_openai_compat(provider, api_key, model, prompt):
     """Handles OpenAI, Groq, OpenRouter, Ollama, LM Studio — all OpenAI-compatible."""
     from openai import OpenAI
@@ -100,6 +156,7 @@ def _call_openai_compat(provider, api_key, model, prompt):
     return response.choices[0].message.content.strip()
 
 
+@retry_with_backoff()
 def _call_gemini(provider, api_key, model, prompt):
     import google.generativeai as genai
     genai.configure(api_key=api_key)
