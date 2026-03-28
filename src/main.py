@@ -23,6 +23,7 @@ from git_diff import GitDiffEngine
 from doc_generator import DocGenerator
 from doc_writer import DocWriter
 from notifier import Notifier
+from config import load_config, config_exists
 
 console = Console()
 
@@ -222,6 +223,12 @@ def main():
     )
     project_root = os.path.abspath(project_root)
 
+    config = load_config(project_root)
+    if config_exists(project_root):
+        info(f"Loaded config from project: provider={config['provider']}, base_branch={config['base_branch']}")
+    elif config_exists():
+        info(f"Loaded config from home: provider={config['provider']}, base_branch={config['base_branch']}")
+
     with Progress(SpinnerColumn(), TextColumn("{task.description}"), TimeElapsedColumn(),
                   console=console, transient=True) as p:
         p.add_task("Verifying git repository...", total=None)
@@ -236,9 +243,12 @@ def main():
     # ── Step 2: AI provider ──────────────────────────────────────────────────
     console.rule("[bold]Step 2 — AI Provider")
 
-    if args.provider:
-        # Non-interactive: provider passed as flag
-        provider_key = args.provider
+    selected_provider = args.provider or config.get("provider")
+    selected_model = args.model or config.get("model")
+
+    if selected_provider:
+        # Non-interactive: provider passed as flag or config
+        provider_key = selected_provider
         provider = get_provider(provider_key)
         if provider["key_env"]:
             api_key = os.environ.get(provider["key_env"], "").strip()
@@ -248,7 +258,7 @@ def main():
                 ).strip()
         else:
             api_key = ""
-        model = args.model or provider["default_model"]
+        model = selected_model or provider["default_model"]
         if provider.get("note"):
             warn(provider["note"])
         ok(f"Using [bold]{provider['label']}[/bold] — {model}")
@@ -270,7 +280,8 @@ def main():
     ok(f"Current branch: [bold]{current_branch}[/bold]")
 
     base_branch = args.base or Prompt.ask(
-        "  [bold cyan]🔀 Base branch to diff against[/bold cyan]", default="main"
+        "  [bold cyan]🔀 Base branch to diff against[/bold cyan]", 
+        default=config.get("base_branch", "main")
     )
     ok(f"Diffing against: [bold]{base_branch}[/bold]")
 
@@ -300,7 +311,7 @@ def main():
 
     # ── Step 4: Template ─────────────────────────────────────────────────────
     console.rule("[bold]Step 4 — Template")
-    template_path = resolve_template_path(project_root, args.template)
+    template_path = resolve_template_path(project_root, args.template or config.get("template"))
     ok(f"Template: {template_path}")
     with open(template_path) as f:
         template_content = f.read()
@@ -318,7 +329,7 @@ def main():
 
     # ── Step 6: Save ─────────────────────────────────────────────────────────
     console.rule("[bold]Step 6 — Saving")
-    output_dir = args.output or os.path.join(project_root, "output")
+    output_dir = args.output or config.get("output_dir") or os.path.join(project_root, "output")
 
     with Progress(SpinnerColumn(), TextColumn("{task.description}"), TimeElapsedColumn(),
                   console=console, transient=True) as p:

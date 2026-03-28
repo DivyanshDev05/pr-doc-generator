@@ -1,0 +1,18 @@
+# PR Doc Generator Configuration
+# Copy this file to .pr-doc-gen.yaml in your project root
+# Config file location priority: project > home > defaults
+
+# AI Provider: anthropic | openai | gemini | groq | openrouter | ollama | lmstudio
+provider: groq
+
+# Model name (optional - uses provider default if not specified)
+model: llama-3.3-70b-versatile
+
+# Base branch to diff against
+base_branch: main
+
+# Output directory for generated PR docs
+output_dir: ./pr-docs
+
+# Custom template path (optional - uses bundled template if not specified)
+# template: ./pr_template.md
