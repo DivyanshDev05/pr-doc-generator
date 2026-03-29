@@ -36,7 +36,9 @@ def retry_with_backoff(max_attempts: int = RETRY_MAX_ATTEMPTS, base_delay: float
                     error_type = _classify_error(e)
                     
                     if attempt == max_attempts:
-                        console.print(f"  [bold red]✖[/bold red]  Failed after {max_attempts} attempts: {error_type}[/bold red]")
+                        error_msg_plain = str(last_exception)[:100]
+                        console.print(f"  [bold red]✖[/bold red]  Failed after {max_attempts} attempts")
+                        console.print(f"     Error: {error_msg_plain}")
                         raise
                     
                     delay = base_delay * (2 ** (attempt - 1))

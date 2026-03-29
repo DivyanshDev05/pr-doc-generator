@@ -90,7 +90,7 @@ RUN echo "" \
 # ── Verify installed packages ────────────────────────────────────────────────
 RUN echo "" \
     && echo "▶  Verifying installed packages..." \
-    && python -c "import rich; print('  ✔  rich', rich.__version__)" \
+    && python -c "from importlib.metadata import version; print('  ✔  rich', version('rich'))" 2>/dev/null || python -c "import rich; print('  ✔  rich installed')" \
     && python -c "import plyer; print('  ✔  plyer ok')" \
     && if [ "${AI_PROVIDER}" = "all" ] || [ "${AI_PROVIDER}" = "anthropic" ]; then \
          python -c "import anthropic; print('  ✔  anthropic', anthropic.__version__)" 2>/dev/null || true; \

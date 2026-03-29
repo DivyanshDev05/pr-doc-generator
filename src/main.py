@@ -9,6 +9,7 @@ import sys
 import time
 import getpass
 import argparse
+from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
@@ -23,9 +24,41 @@ from git_diff import GitDiffEngine
 from doc_generator import DocGenerator
 from doc_writer import DocWriter
 from notifier import Notifier
-from config import load_config, config_exists
+from config import load_config, config_exists, DEFAULT_CONFIG
 
 console = Console()
+
+
+def save_config(project_root: str, provider: str, model: str, base_branch: str):
+    """Save configuration to project's .pr-doc-gen.yaml file."""
+    import yaml
+    config_path = Path(project_root) / ".pr-doc-gen.yaml"
+    config_data = {
+        "provider": provider,
+        "model": model,
+        "base_branch": base_branch,
+    }
+    try:
+        with open(config_path, "w") as f:
+            yaml.dump(config_data, f, default_flow_style=False)
+        ok(f"Saved settings to: {config_path}")
+    except Exception as e:
+        warn(f"Could not save config: {e}")
+
+def load_env_file():
+    """Load .env file from script directory or app directory if it exists."""
+    script_dir = Path(__file__).parent.parent
+    app_dir = Path("/app")
+    
+    for env_dir in [app_dir, script_dir]:
+        env_path = env_dir / ".env"
+        if env_path.exists():
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        key, value = line.split("=", 1)
+                        os.environ.setdefault(key.strip(), value.strip())
 
 BANNER = """
  ██████╗ ██████╗      ██████╗  ██████╗  ██████╗
@@ -47,9 +80,12 @@ def err(msg):   console.print(f"  [bold red]✖[/bold red]  {msg}", style="bold 
 
 
 def confirm_git_command(command):
-    console.print(f"\n  [bold yellow]⚡  Git command to run:[/bold yellow]")
-    console.print(f"     [bold]$ {command}[/bold]")
-    return Confirm.ask("  Run this command?", default=False)
+    console.print(f"\n  [bold yellow]⚡  Git command:[/bold yellow] [bold]$ {command}[/bold]")
+    try:
+        return Confirm.ask("  Run this command?", default=False)
+    except EOFError:
+        console.print("  [yellow]⚠ Running without confirmation (non-interactive mode)[/yellow]")
+        return True
 
 
 def resolve_template_path(project_root, user_provided=None):
@@ -86,6 +122,7 @@ def pick_provider_interactive():
     Step 4: Ask for the API key (or confirm no key needed).
     Returns (provider_key, api_key, model).
     """
+    load_env_file()
     groups = providers_by_category()
 
     # ── Category picker ───────────────────────────────────────────────────────
@@ -146,16 +183,38 @@ def pick_provider_interactive():
         console.print(f"\n  [yellow]ℹ  Note:[/yellow] {provider['note']}")
 
     # ── Model picker ──────────────────────────────────────────────────────────
-    models = provider["models"]
+    api_key_for_models = None
+    if provider.get("key_env"):
+        api_key_for_models = os.environ.get(provider["key_env"], "").strip()
+    
+    console.print(f"\n  [bold]Fetching available models...[/bold]")
+    from providers import fetch_models
+    dynamic_models = fetch_models(provider_key, api_key_for_models) if api_key_for_models else []
+    
+    if dynamic_models:
+        models = dynamic_models
+        console.print(f"  [green]✔[/green]  Loaded {len(models)} models from API")
+    else:
+        models = provider["models"]
+        console.print(f"  [dim]Using default models (API unavailable)[/dim]")
+    
+    default_model = provider.get("default_model")
+    default_idx = 1
+    if default_model and default_model in models:
+        default_idx = models.index(default_model) + 1
+    
     console.print(f"\n  Available models for [bold]{provider['label']}[/bold]:")
-    for i, m in enumerate(models, 1):
-        tag = "  [dim](default)[/dim]" if m == provider["default_model"] else ""
+    for i, m in enumerate(models[:20], 1):
+        tag = "  [dim](default)[/dim]" if i == default_idx else ""
         console.print(f"    [dim]{i}.[/dim]  {m}{tag}")
+    
+    if len(models) > 20:
+        console.print(f"    [dim]... and {len(models) - 20} more[/dim]")
 
     model_choice = Prompt.ask(
         "  [bold]Choose model[/bold]",
         choices=[str(i) for i in range(1, len(models) + 1)],
-        default="1",
+        default=str(default_idx),
     )
     model = models[int(model_choice) - 1]
 
@@ -164,15 +223,26 @@ def pick_provider_interactive():
     if provider["key_env"]:
         api_key = os.environ.get(provider["key_env"], "").strip()
         if api_key:
-            ok(f"{provider['key_env']} found in environment.")
+            ok(f"{provider['key_env']} found in environment (.env or shell).")
         else:
-            console.print(f"\n  [dim]Get your key at: {provider['key_url']}[/dim]")
-            api_key = getpass.getpass(
-                f"  Enter your {provider['label'].split('  ')[0]} API key ({provider['key_hint']}): "
-            ).strip()
+            console.print(f"\n  [yellow]No API key found in environment.[/yellow]")
+            use_existing = Confirm.ask(
+                f"  Do you want to use your saved .env file?",
+                default=True,
+            )
+            if use_existing:
+                load_env_file()
+                api_key = os.environ.get(provider["key_env"], "").strip()
+                if api_key:
+                    ok(f"Loaded {provider['key_env']} from .env file.")
             if not api_key:
-                err("API key is required. Exiting.")
-                sys.exit(1)
+                console.print(f"\n  [dim]Get your key at: {provider['key_url']}[/dim]")
+                api_key = getpass.getpass(
+                    f"  Enter your {provider['label'].split('  ')[0]} API key ({provider['key_hint']}): "
+                ).strip()
+                if not api_key:
+                    err("API key is required. Exiting.")
+                    sys.exit(1)
     else:
         info("No API key needed for local provider.")
 
@@ -212,6 +282,7 @@ Examples:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    load_env_file()
     console.print(Panel(BANNER, style="bold cyan", expand=False))
     args = parse_args()
     notifier = Notifier()
@@ -246,17 +317,42 @@ def main():
 
     selected_provider = args.provider or config.get("provider")
     selected_model = args.model or config.get("model")
+    saved_base_branch = config.get("base_branch")
 
-    if selected_provider:
-        # Non-interactive: provider passed as flag or config
+    use_previous = False
+    if not args.provider and not args.model and not args.base and selected_provider and saved_base_branch:
+        try:
+            use_previous = Confirm.ask(
+                f"  Use previous settings?",
+                default=True,
+            )
+        except EOFError:
+            use_previous = True
+
+    if (use_previous or args.provider) and selected_provider:
         provider_key = selected_provider
         provider = get_provider(provider_key)
         if provider["key_env"]:
             api_key = os.environ.get(provider["key_env"], "").strip()
             if not api_key:
-                api_key = getpass.getpass(
-                    f"  Enter your {provider['label']} API key: "
-                ).strip()
+                try:
+                    use_existing = Confirm.ask(
+                        f"  Use API key from saved .env file?",
+                        default=True,
+                    )
+                except EOFError:
+                    use_existing = True
+                if use_existing:
+                    load_env_file()
+                    api_key = os.environ.get(provider["key_env"], "").strip()
+            if not api_key:
+                try:
+                    api_key = getpass.getpass(
+                        f"  Enter your {provider['label']} API key: "
+                    ).strip()
+                except EOFError:
+                    err("API key required but not found in .env or environment")
+                    sys.exit(1)
         else:
             api_key = ""
         model = selected_model or provider["default_model"]
@@ -280,25 +376,36 @@ def main():
         err("Could not determine current branch."); sys.exit(1)
     ok(f"Current branch: [bold]{current_branch}[/bold]")
 
-    base_branch = args.base or Prompt.ask(
-        "  [bold cyan]🔀 Base branch to diff against[/bold cyan]", 
-        default=config.get("base_branch", "main")
-    )
+    auto_base = git.detect_base_branch()
+    saved_base = config.get("base_branch") if config_exists(project_root) else None
+    default_base = args.base or saved_base or auto_base or "main"
+    default_prompt = f"  [bold cyan]🔀 Base branch to diff against[/bold cyan]"
+    
+    if auto_base and auto_base != default_base:
+        default_prompt += f" (auto-detected: {auto_base})"
+    elif saved_base and saved_base != default_base:
+        default_prompt += f" (saved: {saved_base})"
+    
+    base_branch = args.base or Prompt.ask(default_prompt, default=default_base) if not use_previous else default_base
     ok(f"Diffing against: [bold]{base_branch}[/bold]")
 
     console.print()
-    with Progress(SpinnerColumn(), TextColumn("{task.description}"), TimeElapsedColumn(),
-                  console=console, transient=True) as p:
-        p.add_task(f"Fetching diff  {base_branch} → {current_branch}...", total=None)
-        diff_result = git.get_diff(base_branch, current_branch)
+    info(f"Running: git diff {base_branch}...{current_branch}")
+    console.print()
+    diff_result = git.get_diff(base_branch, current_branch)
 
     if diff_result.get("needs_password"):
-        warn("Repository requires Bitbucket authentication.")
-        app_password = getpass.getpass("  Enter your Bitbucket app password: ").strip()
-        with Progress(SpinnerColumn(), TextColumn("{task.description}"), TimeElapsedColumn(),
-                      console=console, transient=True) as p:
-            p.add_task("Retrying with credentials...", total=None)
-            diff_result = git.get_diff(base_branch, current_branch, password=app_password)
+        warn("Repository requires authentication to fetch remote branch.")
+        try:
+            app_password = getpass.getpass("  Enter your app password: ").strip()
+        except EOFError:
+            err("Password prompt requires interactive terminal. Try running locally with: cd src && python main.py")
+            sys.exit(1)
+        if not app_password:
+            err("No password provided.")
+            sys.exit(1)
+        info(f"Retrying with credentials...")
+        diff_result = git.get_diff(base_branch, current_branch, password=app_password)
 
     if not diff_result.get("diff"):
         warn("No diff found between branches. Nothing to document."); sys.exit(0)
@@ -346,6 +453,8 @@ def main():
         time.sleep(0.2)
 
     ok(f"Saved: [bold]{output_path}[/bold]")
+
+    save_config(project_root, provider_key, model, base_branch)
 
     # ── Step 7: Notify ────────────────────────────────────────────────────────
     provider_label = get_provider(provider_key)["label"]

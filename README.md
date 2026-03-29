@@ -28,7 +28,31 @@ Generate Markdown PR documents from git diff using AI.
 
 ## 🚀 Quick Start
 
-### Step 1 — Build the Docker image
+### Option 1 — Interactive Setup (Recommended)
+
+```bash
+# Runs a guided wizard — picks provider, saves API key, builds image
+./setup.sh
+```
+
+The wizard will:
+1. Check Docker is installed
+2. Ask you to pick an AI provider
+3. Prompt for API key if needed (saved to `.env`)
+4. Build the Docker image
+5. Test connectivity
+
+### Option 2 — Quick Setup (Power User)
+
+```bash
+# One-liner with provider preset
+./setup.sh --quick groq          # Free, no key needed
+./setup.sh --quick anthropic    # Paid, will ask for key
+./setup.sh --quick ollama       # Local, runs on your machine
+./setup.sh --quick all         # All providers
+```
+
+### Option 3 — Manual Build
 
 ```bash
 # Default — installs all AI SDKs (~200MB, works with any provider)
@@ -122,13 +146,13 @@ Then run the generator and choose **Ollama** — it connects automatically.
 
 ## 🔄 Switching AI Provider
 
-The Dockerfile uses a build arg to install only the SDK you need.
-
 ```bash
-# Built with Groq but want to switch to Claude?
-docker build --build-arg AI_PROVIDER=anthropic -t pr-doc-generator .
+# Easy way — rebuild with new provider
+./setup.sh --rebuild             # rebuild with current provider
+./setup.sh --rebuild anthropic   # rebuild with specific provider
 
-# Or just rebuild with all providers
+# Manual — use build arg directly
+docker build --build-arg AI_PROVIDER=anthropic -t pr-doc-generator .
 docker build --build-arg AI_PROVIDER=all -t pr-doc-generator .
 ```
 
@@ -233,9 +257,11 @@ Every allowed command is shown to you before it runs and requires `y` to proceed
 ```
 pr-doc-generator/
 ├── .pr-doc-gen.yaml.example       ← config template
+├── .env                           ← API keys (created by setup.sh, gitignored)
 ├── Dockerfile                     ← AI_PROVIDER build arg controls which SDK is installed
 ├── docker-compose.yml
-├── generate-pr-doc.sh             ← run this
+├── generate-pr-doc.sh             ← run the generator
+├── setup.sh                       ← setup wizard (first time)
 ├── requirements-base.txt          ← rich, plyer, pyyaml, pytest
 ├── requirements-providers/
 │   ├── all.txt                    ← all SDKs
@@ -288,4 +314,18 @@ pytest tests/test_providers.py::TestGetProvider::test_get_provider_valid_groq
 1. Add an entry to `src/providers.py`
 2. If it's OpenAI-compatible (most are), set `"sdk": "openai_compat"` and set `base_url`
 3. Add a `requirements-providers/<name>.txt`
-4. Rebuild: `docker build --build-arg AI_PROVIDER=<name> -t pr-doc-generator .`
+4. Rebuild: `./setup.sh --rebuild <name>` or `docker build --build-arg AI_PROVIDER=<name> -t pr-doc-generator .`
+
+---
+
+## 🗑️ Uninstall
+
+```bash
+# Remove Docker image and optionally .env / output
+./setup.sh --uninstall
+```
+
+This removes:
+- Docker image(s)
+- Optionally: `.env` file (with your API keys)
+- Optionally: `output/` folder
