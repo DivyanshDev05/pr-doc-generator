@@ -92,12 +92,14 @@ PROVIDERS = {
         "category":     "free",
         "description":  "Access 100s of models. Many are free. $5 signup credit.",
         "models": [
+            "minimax/minimax-m2.5-free",
+            "nvidia/nemotron-3-super-120b-a12b:free",
             "meta-llama/llama-3.3-70b-instruct:free",
             "mistralai/mistral-7b-instruct:free",
             "google/gemma-2-9b-it:free",
             "deepseek/deepseek-r1:free",
         ],
-        "default_model": "meta-llama/llama-3.3-70b-instruct:free",
+        "default_model": "minimax/minimax-m2.5-free",
         "key_env":       "OPENROUTER_API_KEY",
         "key_hint":      "sk-or-...",
         "key_url":       "https://openrouter.ai/keys",
@@ -160,3 +162,78 @@ def get_provider(key: str) -> dict:
     if key not in PROVIDERS:
         raise ValueError(f"Unknown provider '{key}'. Available: {list(PROVIDERS)}")
     return PROVIDERS[key]
+
+
+def fetch_models(provider_key: str, api_key: str = None) -> list[str]:
+    """Fetch available models dynamically from provider API.
+    
+    Returns filtered list of relevant models (free + coding/instruction-tuned).
+    """
+    import requests
+    
+    provider = get_provider(provider_key)
+    base_url = provider.get("base_url")
+    
+    if not base_url:
+        return []
+    
+    headers = {}
+    if api_key:
+        if provider_key == "anthropic":
+            headers["x-api-key"] = api_key
+            headers["anthropic-version"] = "2023-06-01"
+        else:
+            headers["Authorization"] = f"Bearer {api_key}"
+    
+    try:
+        if provider_key == "anthropic":
+            return []
+        
+        if provider.get("sdk") == "openai_compat" or "openai" in (base_url or ""):
+            resp = requests.get(f"{base_url}/models", headers=headers, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                all_models = [m["id"] for m in data.get("data", [])]
+                return filter_models(all_models)
+    except Exception:
+        pass
+    
+    return []
+
+
+def filter_models(models: list[str]) -> list[str]:
+    """Filter models to show relevant ones: free + coding/instruction-tuned.
+    
+    Prioritizes:
+    1. Free models (:free)
+    2. Instruction-tuned (instruct)
+    3. Coding-focused (code, coder)
+    4. Well-known good models (llama, mistral, gemma, deepseek, qwen)
+    """
+    free_models = []
+    preferred_models = []
+    
+    preferred_keywords = [
+        "instruct", "code", "coder", "chat", "assistant",
+        "llama", "mistral", "gemma", "deepseek", "qwen",
+        "phi", "command", "flex"
+    ]
+    
+    for m in models:
+        m_lower = m.lower()
+        
+        if ":free" in m_lower:
+            free_models.append(m)
+        elif any(kw in m_lower for kw in preferred_keywords):
+            preferred_models.append(m)
+    
+    result = free_models + preferred_models
+    
+    seen = set()
+    unique_result = []
+    for m in result:
+        if m not in seen:
+            seen.add(m)
+            unique_result.append(m)
+    
+    return unique_result[:25]

@@ -26,13 +26,19 @@ echo "  ║     PR Doc Generator  v1.2           ║"
 echo "  ╚══════════════════════════════════════╝"
 echo ""
 
-# ── Build image if not present or if AI_PROVIDER changed ──────────────────────
+# ── Build image if not present ────────────────────────────────────────────────
 IMAGE_TAG="pr-doc-generator:${AI_PROVIDER}"
-if ! docker image inspect "${IMAGE_TAG}" &>/dev/null; then
+
+# Check for existing image: prefer 'latest', then specific provider, then build
+if docker image inspect "pr-doc-generator:latest" &>/dev/null; then
+  IMAGE_TAG="pr-doc-generator:latest"
+  echo "  ✔  Using cached image: ${IMAGE_TAG}"
+elif ! docker image inspect "${IMAGE_TAG}" &>/dev/null; then
   echo "  🔨 Building Docker image (AI_PROVIDER=${AI_PROVIDER})..."
   echo "     This installs only the SDK you need — faster and leaner."
   echo ""
   docker build \
+    --progress=plain \
     --build-arg "AI_PROVIDER=${AI_PROVIDER}" \
     -t "${IMAGE_TAG}" \
     -t "pr-doc-generator:latest" \
@@ -43,17 +49,18 @@ else
   echo "  ✔  Using cached image: ${IMAGE_TAG}"
 fi
 
-# ── Ensure output directory exists ────────────────────────────────────────────
-mkdir -p "$SCRIPT_DIR/output"
-
 # ── Build docker run args ─────────────────────────────────────────────────────
 DOCKER_ARGS=(
   --rm
   -it
   --add-host=host.docker.internal:host-gateway   # lets container reach host (Ollama/LM Studio)
-  -v "${PROJECT:-/tmp}:/workspace:ro"
-  -v "$SCRIPT_DIR/output:/app/output"
+  -v "${PROJECT:-/tmp}:/workspace:rw"
 )
+
+# Mount .env file if it exists (for API keys)
+if [[ -f "$SCRIPT_DIR/.env" ]]; then
+  DOCKER_ARGS+=(-v "$SCRIPT_DIR/.env:/app/.env:ro")
+fi
 
 # Pass whichever API keys are set in the shell environment
 for KEY_ENV in ANTHROPIC_API_KEY OPENAI_API_KEY GOOGLE_API_KEY GROQ_API_KEY OPENROUTER_API_KEY; do

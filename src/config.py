@@ -14,10 +14,10 @@ from typing import Optional
 import yaml
 
 DEFAULT_CONFIG = {
-    "provider": "groq",
+    "provider": None,
     "model": None,
     "base_branch": "main",
-    "output_dir": "./pr-docs",
+    "output_dir": None,
     "template": None,
 }
 

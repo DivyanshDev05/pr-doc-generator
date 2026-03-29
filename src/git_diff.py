@@ -17,9 +17,15 @@ FORBIDDEN_VERBS = {
     "rm", "clean", "apply", "am", "bisect",
 }
 
+# Commands that are safe and auto-confirmed (read-only, no side effects)
+AUTO_CONFIRM_VERBS = {
+    "diff", "log", "show", "status", "branch", "rev-parse",
+    "symbolic-ref", "ls-files", "name-only",
+}
 
-def _safe_check(command_parts: list):
-    """Raise if a forbidden git verb is in the command."""
+
+def _safe_check(command_parts: list) -> bool:
+    """Raise if a forbidden git verb is in the command. Returns True if auto-confirm safe."""
     verbs = {p.lower() for p in command_parts if not p.startswith("-")}
     bad = verbs & FORBIDDEN_VERBS
     if bad:
@@ -27,6 +33,7 @@ def _safe_check(command_parts: list):
             f"Command contains forbidden git verb(s): {bad}. "
             "This tool never commits, pushes, pulls, or modifies files."
         )
+    return bool(verbs & AUTO_CONFIRM_VERBS)
 
 
 class GitDiffEngine:
@@ -36,9 +43,9 @@ class GitDiffEngine:
 
     def _run(self, args: list, env: dict = None, input_text: str = None) -> subprocess.CompletedProcess:
         """Run a git command after safety check and user confirmation."""
-        _safe_check(args)
+        is_safe = _safe_check(args)
         display = "git " + " ".join(args)
-        if not self.confirm(display):
+        if not is_safe and not self.confirm(display):
             raise InterruptedError(f"User declined to run: {display}")
         result = subprocess.run(
             ["git"] + args,
@@ -51,10 +58,42 @@ class GitDiffEngine:
         return result
 
     def current_branch(self) -> Optional[str]:
-        """Return the name of the currently checked-out branch."""
-        result = self._run(["rev-parse", "--abbrev-ref", "HEAD"])
+        """Return the name of the currently checked-out branch (fast, no confirmation)."""
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
         if result.returncode == 0:
             return result.stdout.strip()
+        return None
+
+    def detect_base_branch(self) -> Optional[str]:
+        """Try to auto-detect the base branch (main, master, develop, etc.)."""
+        common_branches = ["main", "master", "develop", "development", "staging"]
+        
+        for branch in common_branches:
+            result = subprocess.run(
+                ["git", "rev-parse", "--verify", f"origin/{branch}"],
+                cwd=self.root,
+                capture_output=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                return branch
+        
+        result = subprocess.run(
+            ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
+            cwd=self.root,
+            capture_output=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            ref = result.stdout.strip()
+            return ref.split("/")[-1]
+        
         return None
 
     def get_diff(
