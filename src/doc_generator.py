@@ -85,7 +85,7 @@ Rules:
 - For Scope: list specifically what files/components changed (in scope) and what did NOT change (out of scope).
 - For Problem Solved: infer the ticket/issue from the branch name if possible.
 - For Code Changes Per File: list each changed file with a brief description.
-- For Database Changes: check for SQL, migrations, schema changes. If none, check "No DB changes".
+- For Database Changes: check for SQL, migrations, schema changes. If there are changes, replace :cross_mark: with :white_check_mark: for the relevant items. If none found, leave all as :cross_mark:.
 - For Post-Deployment Steps: infer from the diff (cache clears, config updates, restarts).
 - For How to Test: concrete steps a QA engineer can follow WITHOUT developer help.
 - Be specific — use actual file paths, method names, variable names from the diff.
