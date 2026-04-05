@@ -81,11 +81,12 @@ Your job is to fill in the template accurately and thoroughly based only on what
 Rules:
 - Follow the template structure EXACTLY. Do not add or remove sections.
 - Keep the template emoji headings, dividers, and checkbox formatting intact.
+- NEVER convert emoji like ❌ or ✅ to markdown checkboxes like [ ] or [x].
 - For the PR Summary: write a single clear one-liner describing what this PR does.
 - For Scope: list specifically what files/components changed (in scope) and what did NOT change (out of scope).
 - For Problem Solved: infer the ticket/issue from the branch name if possible.
 - For Code Changes Per File: list each changed file with a brief description.
-- For Database Changes: check for SQL, migrations, schema changes. If none, check "No DB changes".
+- For Database Changes: check for SQL, migrations, schema changes. If there are changes, replace ❌ with ✅ for the relevant items. If none found, leave all as ❌.
 - For Post-Deployment Steps: infer from the diff (cache clears, config updates, restarts).
 - For How to Test: concrete steps a QA engineer can follow WITHOUT developer help.
 - Be specific — use actual file paths, method names, variable names from the diff.

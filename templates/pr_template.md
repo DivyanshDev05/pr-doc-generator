@@ -19,11 +19,11 @@
 
 ## 🗄️ Database Changes
 <!-- CRITICAL for QA/OPS during deployment without dev availability -->
-- [ ] No DB changes
-- [ ] Migration script included (path: `db/migrations/xxx`)
-- [ ] Schema changes (tables/columns added/modified/dropped):
-- [ ] Index changes:
-- [ ] Seed data / reference data changes:
+- ❌ No DB changes
+- ❌ Migration script included (path: `db/migrations/xxx`)
+- ❌ Schema changes (tables/columns added/modified/dropped):
+- ❌ Index changes:
+- ❌ Seed data / reference data changes:
 
 - **Rollback SQL (if applicable):**
 ```sql
